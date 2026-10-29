@@ -12,8 +12,10 @@ import java.net.URLEncoder
 class LyricsFetcher(private val client: OkHttpClient) {
 
     suspend fun fetch(artist: String, title: String): String? = withContext(Dispatchers.IO) {
-        val fromOvh = fetchLyricsOvh(artist, title)
-        if (fromOvh != null) fromOvh else fetchGenius(artist, title)
+        // Приоритет: lyrics.ovh -> LRCLIB -> Genius
+        fetchLyricsOvh(artist, title)
+            ?: fetchLrclib(artist, title)
+            ?: fetchGenius(artist, title)
     }
 
     private fun fetchLyricsOvh(artist: String, title: String): String? {
@@ -27,6 +29,28 @@ class LyricsFetcher(private val client: OkHttpClient) {
                     resp.body?.string()
                 }
             body?.let { JSONObject(it).optString("lyrics").trim().ifBlank { null } }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    // НОВЫЙ ИСТОЧНИК: LRCLIB (без токена)
+    private fun fetchLrclib(artist: String, title: String): String? {
+        return try {
+            val url = "https://lrclib.net/api/get?artist_name=" +
+                    URLEncoder.encode(artist, "UTF-8") + "&track_name=" +
+                    URLEncoder.encode(title, "UTF-8")
+            val body = client.newCall(Request.Builder().url(url).build())
+                .execute().use { resp ->
+                    if (!resp.isSuccessful) return null
+                    resp.body?.string()
+                } ?: return null
+
+            val json = JSONObject(body)
+            // Сначала пробуем обычный текст, потом синхронизированный
+            json.optString("plainLyrics").ifBlank {
+                json.optString("syncedLyrics")
+            }.ifBlank { null }
         } catch (e: Exception) {
             null
         }
