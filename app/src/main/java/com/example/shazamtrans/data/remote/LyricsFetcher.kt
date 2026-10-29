@@ -9,31 +9,31 @@ import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.net.URLEncoder
 
-class LyricsFetcher(private val client: OkHttpClient) {
+suspend fun fetch(artist: String, title: String): String? = withContext(Dispatchers.IO) {
+    // Сначала пробуем как есть (вдруг точное совпадение есть)
+    val exact = fetchLyricsOvh(artist, title)
+        ?: fetchLrclib(artist, title)
+        ?: fetchGenius(artist, title)
+    if (exact != null) return@withContext exact
 
-    suspend fun fetch(artist: String, title: String): String? = withContext(Dispatchers.IO) {
-        // Приоритет: lyrics.ovh -> LRCLIB -> Genius
-        fetchLyricsOvh(artist, title)
-            ?: fetchLrclib(artist, title)
-            ?: fetchGenius(artist, title)
+    // Если не вышло — очищаем название и пробуем снова
+    val clean = cleanTitle(title)
+    if (clean != title) {
+        return@withContext fetchLyricsOvh(artist, clean)
+            ?: fetchLrclib(artist, clean)
+            ?: fetchGenius(artist, clean)
     }
+    null
+}
 
-    private fun fetchLyricsOvh(artist: String, title: String): String? {
-        return try {
-            val url = "https://api.lyrics.ovh/v1/" +
-                    URLEncoder.encode(artist, "UTF-8") + "/" +
-                    URLEncoder.encode(title, "UTF-8")
-            val body = client.newCall(Request.Builder().url(url).build())
-                .execute().use { resp ->
-                    if (!resp.isSuccessful) return null
-                    resp.body?.string()
-                }
-            body?.let { JSONObject(it).optString("lyrics").trim().ifBlank { null } }
-        } catch (e: Exception) {
-            null
-        }
-    }
-
+private fun cleanTitle(title: String): String {
+    return title
+        // убираем всё в скобках: (Live), [Remastered], (feat. ...) и т.п.
+        .replace(Regex("""\s*[\(\[].[^\)\]]*[\)\]]"""), "")
+        // убираем типичные суффиксы после дефиса
+        .replace(Regex("""\s*-\s*(Live|Remastered|Acoustic|Radio Edit|Demo).*$""", RegexOption.IGNORE_CASE), "")
+        .trim()
+}
     // НОВЫЙ ИСТОЧНИК: LRCLIB (без токена)
     private fun fetchLrclib(artist: String, title: String): String? {
         return try {
