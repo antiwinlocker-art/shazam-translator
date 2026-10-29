@@ -15,7 +15,7 @@ android {
         versionCode 1
         versionName "1.0"
         // Оставь пустым — работает через lyrics.ovh. Или вставь токен Genius.
-        buildConfigField "String", "GENIUS_TOKEN", "\"KBR7_ykb-nta-TiCkfZay9k8HHBw2b88SOp-Q6wRJdYow2lB-xJUJ8G0oNY4zItU\""
+        buildConfigField "String", "GENIUS_TOKEN", "\"xue_hkVdoE6UeXGNyNNDvotYDStCTmii3qU7SoojVuE2HogwX3IRBbKNWyBV8l-G\""
     }
 
     buildFeatures {
