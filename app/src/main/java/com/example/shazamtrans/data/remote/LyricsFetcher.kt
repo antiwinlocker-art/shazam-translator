@@ -9,32 +9,54 @@ import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.net.URLEncoder
 
-suspend fun fetch(artist: String, title: String): String? = withContext(Dispatchers.IO) {
-    // Сначала пробуем как есть (вдруг точное совпадение есть)
-    val exact = fetchLyricsOvh(artist, title)
-        ?: fetchLrclib(artist, title)
-        ?: fetchGenius(artist, title)
-    if (exact != null) return@withContext exact
+class LyricsFetcher(private val client: OkHttpClient) {
 
-    // Если не вышло — очищаем название и пробуем снова
-    val clean = cleanTitle(title)
-    if (clean != title) {
-        return@withContext fetchLyricsOvh(artist, clean)
-            ?: fetchLrclib(artist, clean)
-            ?: fetchGenius(artist, clean)
+    suspend fun fetch(artist: String, title: String): String? = withContext(Dispatchers.IO) {
+        // 1. Сначала как есть
+        val exact = fetchLyricsOvh(artist, title)
+            ?: fetchLrclib(artist, title)
+            ?: fetchGenius(artist, title)
+        if (exact != null) return@withContext exact
+
+        // 2. Если не вышло — пробуем очищенное название
+        val clean = cleanTitle(title)
+        if (clean != title) {
+            return@withContext fetchLyricsOvh(artist, clean)
+                ?: fetchLrclib(artist, clean)
+                ?: fetchGenius(artist, clean)
+        }
+        null
     }
-    null
-}
 
-private fun cleanTitle(title: String): String {
-    return title
-        // убираем всё в скобках: (Live), [Remastered], (feat. ...) и т.п.
-        .replace(Regex("""\s*[\(\[].[^\)\]]*[\)\]]"""), "")
-        // убираем типичные суффиксы после дефиса
-        .replace(Regex("""\s*-\s*(Live|Remastered|Acoustic|Radio Edit|Demo).*$""", RegexOption.IGNORE_CASE), "")
-        .trim()
-}
-    // НОВЫЙ ИСТОЧНИК: LRCLIB (без токена)
+    private fun cleanTitle(title: String): String {
+        return title
+            .replace(Regex("""\s*[\(\[].[^\)\]]*[\)\]]"""), "")
+            .replace(
+                Regex(
+                    """\s*-\s*(Live|Remastered|Acoustic|Radio Edit|Demo).*$""",
+                    RegexOption.IGNORE_CASE
+                ),
+                ""
+            )
+            .trim()
+    }
+
+    private fun fetchLyricsOvh(artist: String, title: String): String? {
+        return try {
+            val url = "https://api.lyrics.ovh/v1/" +
+                    URLEncoder.encode(artist, "UTF-8") + "/" +
+                    URLEncoder.encode(title, "UTF-8")
+            val body = client.newCall(Request.Builder().url(url).build())
+                .execute().use { resp ->
+                    if (!resp.isSuccessful) return null
+                    resp.body?.string()
+                }
+            body?.let { JSONObject(it).optString("lyrics").trim().ifBlank { null } }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun fetchLrclib(artist: String, title: String): String? {
         return try {
             val url = "https://lrclib.net/api/get?artist_name=" +
@@ -47,7 +69,6 @@ private fun cleanTitle(title: String): String {
                 } ?: return null
 
             val json = JSONObject(body)
-            // Сначала пробуем обычный текст, потом синхронизированный
             json.optString("plainLyrics").ifBlank {
                 json.optString("syncedLyrics")
             }.ifBlank { null }
